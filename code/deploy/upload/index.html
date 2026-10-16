@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Traffic Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #1d2733; --muted: #66727f; --line: #e1e5ea;
+    --red: #e5484d; --yellow: #f5a524; --green: #30a46c; --off: #d5d9de; --accent: #2f6fde;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { background: #1d2733; color: #fff; padding: 14px 20px; display: flex;
+           flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  header h1 { margin: 0; font-size: 20px; }
+  .pill { padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; background: #3a4654; }
+  .pill.ok { background: var(--green); } .pill.bad { background: var(--red); }
+  .pill.warn { background: var(--yellow); color: #1d2733; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; }
+  .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .lane { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; gap: 14px; }
+  .light { background: #1d2733; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .bulb { width: 22px; height: 22px; border-radius: 50%; background: #3a4654; }
+  .bulb.r.on { background: var(--red); box-shadow: 0 0 10px var(--red); }
+  .bulb.y.on { background: var(--yellow); box-shadow: 0 0 10px var(--yellow); }
+  .bulb.g.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
+  .lane h3 { margin: 0 0 6px; font-size: 15px; }
+  .stat { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .stat b { color: var(--text); }
+  .badge { display: inline-block; margin-top: 6px; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .LOW { background: #dff3e8; color: #1c7a4c; } .MEDIUM { background: #fdf0d5; color: #8a5a00; }
+  .HIGH { background: #fde2e2; color: #b42324; }
+  .fault { color: var(--red); font-weight: 700; font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  button { border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 600; cursor: pointer;
+           background: var(--accent); color: #fff; font-size: 14px; }
+  button.danger { background: var(--red); } button.ghost { background: #e8ecf1; color: var(--text); }
+  button.active { outline: 3px solid #1d2733; }
+  input { border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 14px; width: 100%; }
+  label { font-size: 12px; color: var(--muted); display: block; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 10px 0; }
+  .info { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .info div { background: var(--bg); border-radius: 8px; padding: 10px; }
+  .info span { display: block; font-size: 12px; color: var(--muted); }
+  .info b { font-size: 18px; }
+  ul.alerts { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow: auto; }
+  ul.alerts li { border-bottom: 1px solid var(--line); padding: 8px 0; font-size: 13px; }
+  ul.alerts small { color: var(--muted); }
+  #msg { font-size: 13px; min-height: 18px; margin-top: 8px; }
+  .chart-box { position: relative; height: 260px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚦 Smart Traffic Signal – Live Dashboard</h1>
+  <div class="row">
+    <span id="online" class="pill">Connecting…</span>
+    <span id="mode" class="pill">Mode: –</span>
+    <span id="updated" class="pill">–</span>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Junction status (live from sensors) + AI congestion forecast (next ~30 s)</h2>
+    <div class="lanes" id="lanes"></div>
+  </section>
+
+  <section class="card">
+    <div class="info">
+      <div><span>Green lane</span><b id="iGreen">–</b></div>
+      <div><span>Phase time left</span><b id="iRem">–</b></div>
+      <div><span>Last decision reason</span><b id="iReason">–</b></div>
+      <div><span>Forecast model</span><b id="iModel">–</b></div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Queue length per lane (last 3 minutes)</h2>
+      <div class="chart-box"><canvas id="chart"></canvas></div>
+    </section>
+    <section class="card">
+      <h2>Alerts (also sent by email)</h2>
+      <ul class="alerts" id="alerts"><li>No alerts yet</li></ul>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Control panel</h2>
+    <div class="row" style="max-width:260px;margin-bottom:12px">
+      <input id="pin" type="password" placeholder="Admin PIN" autocomplete="off">
+    </div>
+    <div class="row">
+      <button id="bAuto" onclick="send({cmd:'mode',mode:'AUTO'})">Auto (smart)</button>
+      <button class="ghost" id="bM1" onclick="send({cmd:'mode',mode:'MANUAL',lane:1})">Lane 1 green</button>
+      <button class="ghost" id="bM2" onclick="send({cmd:'mode',mode:'MANUAL',lane:2})">Lane 2 green</button>
+      <button class="ghost" id="bM3" onclick="send({cmd:'mode',mode:'MANUAL',lane:3})">Lane 3 green</button>
+      <button class="ghost" id="bM4" onclick="send({cmd:'mode',mode:'MANUAL',lane:4})">Lane 4 green</button>
+      <button class="danger" id="bAllRed" onclick="send({cmd:'mode',mode:'ALLRED'})">Emergency: all red</button>
+      <button class="ghost" onclick="send({cmd:'reset'})">Reset counts</button>
+    </div>
+
+    <h2 style="margin-top:18px">Signal settings</h2>
+    <div class="settings">
+      <div><label>Min green (s)</label><input id="sMINGREEN" type="number" min="3" max="60"></div>
+      <div><label>Max green (s)</label><input id="sMAXGREEN" type="number" min="5" max="120"></div>
+      <div><label>Extra green / vehicle (s)</label><input id="sPERVEH" type="number" min="0" max="10"></div>
+      <div><label>Max wait (s)</label><input id="sMAXWAIT" type="number" min="10" max="300"></div>
+      <div><label>Weight: queue</label><input id="sWQ" type="number" step="0.1" min="0" max="10"></div>
+      <div><label>Weight: wait</label><input id="sWW" type="number" step="0.1" min="0" max="10"></div>
+    </div>
+    <button onclick="applySettings()">Apply settings</button>
+    <div id="msg"></div>
+  </section>
+</main>
+
+<script>
+// ===== Set this to your API Gateway invoke URL (no trailing slash) =====
+const API_BASE = "https://7w405fp4xc.execute-api.ap-south-1.amazonaws.com";
+const POLL_MS = 3000;
+const OFFLINE_AFTER_MS = 15000;
+
+const SETTING_FIELDS = { MINGREEN: "ming", MAXGREEN: "maxg", PERVEH: "pv", MAXWAIT: "mw", WQ: "wq", WW: "ww" };
+const COLORS = ["#2f6fde", "#e5484d", "#30a46c", "#f5a524"];
+const REASONS = { score: "Highest priority score", maxwait: "Waited too long", idle: "No traffic",
+                  manual: "Manual override", allred: "Emergency", start: "Starting" };
+let settingsFilled = false;
+
+// ---------- lane cards ----------
+const lanesEl = document.getElementById("lanes");
+for (let i = 1; i <= 4; i++) {
+  lanesEl.insertAdjacentHTML("beforeend", `
+    <div class="lane">
+      <div class="light"><div class="bulb r" id="r${i}"></div><div class="bulb y" id="y${i}"></div><div class="bulb g" id="g${i}"></div></div>
+      <div>
+        <h3>Lane ${i}</h3>
+        <div class="stat">Waiting: <b id="q${i}">–</b> vehicles</div>
+        <div class="stat">Wait time: <b id="w${i}">–</b> s</div>
+        <div class="stat">Priority score: <b id="s${i}">–</b></div>
+        <div class="stat">Total counted: <b id="t${i}">–</b></div>
+        <span class="badge" id="p${i}">Forecast –</span>
+        <div class="fault" id="f${i}"></div>
+      </div>
+    </div>`);
+}
+
+// ---------- chart ----------
+const chart = new Chart(document.getElementById("chart"), {
+  type: "line",
+  data: { labels: [], datasets: [1, 2, 3, 4].map(i => ({
+    label: `Lane ${i}`, data: [], borderColor: COLORS[i - 1], backgroundColor: COLORS[i - 1],
+    tension: 0.25, pointRadius: 0, borderWidth: 2 })) },
+  options: { animation: false, maintainAspectRatio: false,
+    scales: { y: { beginAtZero: true, title: { display: true, text: "Vehicles waiting" }, ticks: { precision: 0 } } },
+    plugins: { legend: { position: "bottom" } } }
+});
+
+const $ = id => document.getElementById(id);
+const fmtTime = ms => new Date(ms).toLocaleTimeString();
+
+function setPill(el, text, cls) { el.textContent = text; el.className = "pill " + (cls || ""); }
+
+function render(state) {
+  const r = state.latest;
+  if (!r) { setPill($("online"), "No data yet", "warn"); return; }
+
+  const age = state.server_time - r.ts;
+  setPill($("online"), age < OFFLINE_AFTER_MS ? "Device online" : "Device offline", age < OFFLINE_AFTER_MS ? "ok" : "bad");
+  setPill($("mode"), "Mode: " + r.mode + (r.mode === "MANUAL" ? " (Lane " + r.ml + ")" : ""),
+          r.mode === "AUTO" ? "ok" : r.mode === "ALLRED" ? "bad" : "warn");
+  $("updated").textContent = "Updated " + fmtTime(r.ts);
+
+  const lights = r.lights || "RRRR";
+  const pred = state.prediction || {};
+  for (let i = 1; i <= 4; i++) {
+    const c = lights[i - 1];
+    $("r" + i).classList.toggle("on", c === "R");
+    $("y" + i).classList.toggle("on", c === "Y");
+    $("g" + i).classList.toggle("on", c === "G");
+    $("q" + i).textContent = r["q" + i];
+    $("w" + i).textContent = r["w" + i];
+    $("s" + i).textContent = r["s" + i];
+    $("t" + i).textContent = r["t" + i];
+    const lvl = pred["p" + i];
+    const badge = $("p" + i);
+    badge.className = "badge " + (lvl || "");
+    badge.textContent = lvl ? `Forecast ${lvl} (${Math.round(pred["c" + i] * 100)}%)` : "Forecast –";
+    $("f" + i).textContent = r["f" + i] == 1 ? "⚠ Sensor fault" : "";
+  }
+
+  $("iGreen").textContent = r.green ? "Lane " + r.green : (r.phase === "Y" ? "Yellow" : "All red");
+  $("iRem").textContent = r.mode === "ALLRED" ? "Hold" : r.rem + " s";
+  $("iReason").textContent = REASONS[r.rsn] || r.rsn;
+  $("iModel").textContent = pred.source ? (pred.source === "rule" ? "Rule (no model yet)" : pred.source) : "–";
+
+  $("bAuto").classList.toggle("active", r.mode === "AUTO");
+  $("bAllRed").classList.toggle("active", r.mode === "ALLRED");
+  for (let i = 1; i <= 4; i++) $("bM" + i).classList.toggle("active", r.mode === "MANUAL" && r.ml == i);
+
+  if (!settingsFilled) {
+    for (const [key, field] of Object.entries(SETTING_FIELDS)) $("s" + key).value = r[field];
+    settingsFilled = true;
+  }
+
+  const hist = state.history || [];
+  chart.data.labels = hist.map(h => fmtTime(h.ts));
+  chart.data.datasets.forEach((d, idx) => d.data = hist.map(h => h["q" + (idx + 1)]));
+  chart.update();
+
+  const alerts = state.alerts || [];
+  $("alerts").innerHTML = alerts.length ? alerts.map(a =>
+    `<li><b>${escapeHtml(a.subject)}</b><br><small>${fmtTime(a.ts)}</small></li>`).join("") : "<li>No alerts yet</li>";
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function poll() {
+  try {
+    const res = await fetch(API_BASE + "/state");
+    render(await res.json());
+  } catch (e) {
+    setPill($("online"), "API unreachable", "bad");
+  }
+}
+
+async function send(command) {
+  const pin = $("pin").value.trim();
+  if (!pin) { showMsg("Enter the admin PIN first.", true); return false; }
+  try {
+    const res = await fetch(API_BASE + "/command", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...command, pin })
+    });
+    const out = await res.json();
+    if (out.ok) showMsg("Sent: " + JSON.stringify(out.sent));
+    else showMsg("Rejected: " + out.error, true);
+    return out.ok;
+  } catch (e) {
+    showMsg("Could not reach the API.", true);
+    return false;
+  }
+}
+
+async function applySettings() {
+  for (const key of Object.keys(SETTING_FIELDS)) {
+    const v = $("s" + key).value;
+    if (v === "") continue;
+    if (!(await send({ cmd: "set", key, value: Number(v) }))) return;
+  }
+  showMsg("Settings applied.");
+}
+
+function showMsg(text, isError) { const m = $("msg"); m.textContent = text; m.style.color = isError ? "var(--red)" : "var(--green)"; }
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

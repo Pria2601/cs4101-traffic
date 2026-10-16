@@ -1,0 +1,15 @@
+# ---- Device secrets: NEVER commit ----
+code/nodemcu_gateway/secrets.h
+aws_certs/
+*.pem
+*.crt
+*.key
+
+# ---- Not ours to publish ----
+course_docs/
+reference_repo/
+
+# ---- Build outputs (rebuild anytime) ----
+code/deploy/*.zip
+__pycache__/
+*.pyc
